@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAYNA TOURS</title>
+    <!-- Tailwind CSS CDN for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <!-- Firebase Realtime Database CDN -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+    <!-- jsPDF and jsPDF AutoTable CDNs for PDF Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+    <style>
+        /* Custom styles for the required look and feel */
+        :root {
+            --bg-light: #f4f6f9;
+            --accent-blue: #007bff;
+            --accent-blue-dark: #0056b3;
+        }
+
+        /* Layout fix for sticky header/footer */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-light);
+            height: 100vh; /* Full viewport height */
+            overflow: hidden; /* Prevent body scroll */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Main scrollable area */
+        main {
+            flex-grow: 1;
+            overflow-y: auto; /* Scroll inside main */
+            padding-bottom: 2rem;
+        }
+
+        .text-blue-accent { color: var(--accent-blue); }
+        .bg-blue-accent { background-color: var(--accent-blue); }
+        .hover\:bg-blue-accent-dark:hover { background-color: var(--accent-blue-dark); }
+        
+        /* Style for active tab */
+        .tab-active {
+            border-bottom: 3px solid var(--accent-blue);
+            color: var(--accent-blue);
+            font-weight: 600;
+            background-color: rgba(0, 123, 255, 0.05);
+        }
+
+        /* Table specific styles */
+        .table-container {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            background: white;
+        }
+
+        .sticky-header th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background-color: #f9fafb;
+            box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Alternate row coloring and hover effect */
+        .data-row:nth-child(even) { background-color: #f9fafb; }
+        .data-row:hover { background-color: #eef2ff; }
+        
+        /* Modal Blur Overlay */
+        .modal-overlay {
+            backdrop-filter: blur(4px);
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        /* Toggle Switch for Details Modal */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #68D391;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #68D391;
+        }
+    </style>
+</head>
+<body class="flex flex-col">
+
+    <!-- Header (Sticky Top) -->
+    <header class="bg-white shadow-md p-4 z-20 flex-shrink-0 relative">
+        <div class="container mx-auto flex justify-between items-center flex-wrap gap-4">
+            <img src="https://d1i3enf1i5tb1f.cloudfront.net/assets/Images/AGT-06437/raynatourslogo.png" alt="Rayna Tours" width="150" height="50">
+
+            <!-- Tabs Navigation -->
+            <nav id="tabs-nav" class="flex space-x-2 overflow-x-auto pb-2 md:pb-0">
+                <button data-sheet="api" class="tab-button tab-active px-4 py-2 hover:text-blue-accent rounded-t-lg transition duration-150 whitespace-nowrap">API Integration</button>
+                <button data-sheet="white" class="tab-button px-4 py-2 hover:text-blue-accent rounded-t-lg transition duration-150 whitespace-nowrap">White Label</button>
+                <button data-sheet="credit" class="tab-button px-4 py-2 hover:text-blue-accent rounded-t-lg transition duration-150 whitespace-nowrap">Credit Application</button>
+                <button data-sheet="auth" class="tab-button px-4 py-2 hover:text-blue-accent rounded-t-lg transition duration-150 whitespace-nowrap">Authorization</button>
+            </nav>
+
+            <!-- Profile/Actions Dropdown -->
+            <div class="relative">
+                <button id="profile-btn" class="bg-blue-accent text-white px-4 py-2 rounded-full shadow-md hover:bg-blue-accent-dark transition duration-150">
+                    <i class="fas fa-ellipsis-v"></i>
+                </button>
+                <div id="profile-dropdown" class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-30 hidden border border-gray-100">
+                    <button class="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-t-lg" onclick="app.exportPDF()"><i class="fas fa-file-pdf mr-2 text-red-500"></i> Create PDF</button>
+                    <button class="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100" onclick="app.exportJSON()"><i class="fas fa-file-download mr-2 text-blue-500"></i> Download JSON</button>
+                    <button class="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-b-lg" onclick="document.getElementById('json-upload-input').click()"><i class="fas fa-file-upload mr-2 text-green-500"></i> Upload JSON</button>
+                </div>
+            </div>
+            <input type="file" id="json-upload-input" accept=".json" class="hidden" onchange="app.importJSON(event)">
+        </div>
+    </header>
+
+    <!-- Sticky Controls Toolbar (Now outside main to prevent scrolling) -->
+    <div id="sticky-toolbar" class="bg-white border-b border-gray-200 p-4 shadow-sm z-10 flex-shrink-0">
+        <div class="container mx-auto flex flex-wrap items-center justify-between gap-4">
+            <div class="relative flex-grow max-w-lg">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fas fa-search"></i>
+                </span>
+                <!-- Added instructions for deep search -->
+                <input type="text" id="search-input" placeholder="Search" class="w-full pl-10 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-accent focus:border-blue-accent transition duration-150">
+            </div>
+            
+            <!-- Date Filter (Authorization Tab Only) -->
+            <div id="date-filter-container" class="hidden flex items-center space-x-2 bg-gray-50 p-2 rounded-lg border">
+                <label class="text-sm text-gray-600 font-medium">Date:</label>
+                <input type="date" id="start-date-filter" class="p-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-accent">
+                <span class="text-gray-400">-</span>
+                <input type="date" id="end-date-filter" class="p-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-accent">
+            </div>
+
+            <button id="add-row-btn" class="bg-green-600 text-white px-5 py-2 rounded-lg shadow-md hover:bg-green-700 transition duration-150 flex items-center font-medium">
+                <i class="fas fa-plus mr-2"></i> Add New
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Content (Scrollable Middle) -->
+    <main class="container mx-auto p-4 w-full">
+        <!-- Table View -->
+        <div class="table-container shadow-lg">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead id="table-head" class="sticky-header">
+                    <!-- Headers injected via JS -->
+                </thead>
+                <tbody id="table-body" class="bg-white divide-y divide-gray-200">
+                    <!-- Table rows injected via JS -->
+                    <tr id="loading-row" class="text-center"><td colspan="10" class="p-8 text-gray-500 animate-pulse">Loading data...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- No Data Message -->
+        <div id="no-data-message" class="hidden flex flex-col items-center justify-center mt-12 p-8 bg-white rounded-xl shadow-sm border border-gray-100">
+            <div class="bg-blue-50 p-4 rounded-full mb-4">
+                <i class="fas fa-folder-open text-3xl text-blue-accent"></i>
+            </div>
+            <p class="text-lg text-gray-700 font-medium">No records found</p>
+            <p class="text-sm text-gray-500 mt-1">Try adjusting your search or filters.</p>
+        </div>
+
+    </main>
+
+    <!-- Footer (Sticky Bottom) -->
+    <footer class="p-4 bg-white text-center text-sm text-gray-500 border-t shadow-[0_-2px_4px_rgba(0,0,0,0.05)] flex-shrink-0 z-20">
+        <p>&copy; 2024 Rayna Tours Tracker. Developed by SAURAV CHAUHAN</p>
+    </footer>
+
+    <!-- --- MODALS --- -->
+
+    <!-- Main Details Modal (The "Dialogue Box") -->
+    <div id="details-modal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl transform transition-all flex flex-col max-h-[90vh]">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-start bg-gray-50 rounded-t-xl">
+                <div class="w-full pr-4">
+                    <!-- Added break-words and whitespace-normal for long company names -->
+                    <h2 class="text-xl font-bold text-gray-800 break-words whitespace-normal" id="modal-title">Row Details</h2>
+                    <p class="text-sm text-gray-500" id="modal-subtitle">Edit information below</p>
+                </div>
+                <button onclick="app.closeModal('details-modal')" class="text-gray-400 hover:text-gray-600 transition duration-150 mt-1">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <!-- Modal Body (Scrollable) -->
+            <div class="p-6 overflow-y-auto flex-grow">
+                <form id="details-form" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Dynamic Fields injected here -->
+                </form>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl flex justify-end space-x-3 flex-shrink-0">
+                <button onclick="app.closeModal('details-modal')" class="px-5 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition duration-150">Cancel</button>
+                <button onclick="app.saveDetails()" class="px-5 py-2 bg-blue-accent text-white rounded-lg hover:bg-blue-accent-dark font-medium shadow-sm transition duration-150">
+                    <i class="fas fa-save mr-2"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 transform transition-all text-center">
+            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+                <i class="fas fa-trash-alt text-red-600 text-lg"></i>
+            </div>
+            <h2 class="text-xl font-semibold mb-2 text-gray-900">Delete Record?</h2>
+            <p class="text-gray-500 mb-6 text-sm">This action cannot be undone. Are you sure you want to permanently delete this record?</p>
+            <div class="flex justify-center space-x-3">
+                <button onclick="app.closeModal('confirmation-modal')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition duration-150 font-medium">Cancel</button>
+                <button id="confirm-delete-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition duration-150 font-medium">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Message Box (Toast) -->
+    <div id="message-box" class="fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg hidden z-[100] transition-all duration-300 transform translate-y-0 flex items-center">
+        <i id="message-icon" class="fas fa-check-circle mr-3"></i>
+        <span id="message-text" class="font-medium"></span>
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script>
+        // --- Configuration & Initialization ---
+
+        // Function to sanitize the App ID for use as a Firebase path node name
+        const sanitizeFirebasePath = (path) => {
+            return path.replace(/[.#$\[\]]/g, '_');
+        };
+
+        // Get the global Firebase variables provided by the environment
+        const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const appId = sanitizeFirebasePath(rawAppId);
+        
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyBth_1AilBLr-x4LiHvlGvWpbk4G4XDfPk",
+          authDomain: "dara-d54e7.firebaseapp.com",
+          databaseURL: "https://dara-d54e7-default-rtdb.firebaseio.com",
+          projectId: "dara-d54e7",
+          storageBucket: "dara-d54e7.firebasestorage.app",
+          messagingSenderId: "457852810868",
+          appId: "1:457852810868:web:31ef63e0391a565cc28321",
+          measurementId: "G-WHTLGEGM5L"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // Define the structure for all sheets
+        const SHEET_CONFIG = {
+            'api': {
+                node: 'tracker/api',
+                name: 'API Integration',
+                columns: [
+                    { key: 'agtCode', label: 'AGT Code', type: 'text', required: true },
+                    { key: 'companyName', label: 'Company Name', type: 'text', required: true },
+                    { key: 'infoSent', label: 'Info Sent', type: 'checkbox' },
+                    { key: 'infoReceived', label: 'Info Received', type: 'checkbox' },
+                    { key: 'trade', label: 'Trade License', type: 'checkbox' },
+                    { key: 'vat', label: 'VAT Certificate', type: 'checkbox' },
+                    { key: 'service', label: 'Service Agreement', type: 'checkbox' },
+                    { key: 'xml', label: 'XML Agreement', type: 'checkbox' },
+                    { key: 'nda', label: 'NDA', type: 'checkbox' },
+                    { key: 'docsSent', label: 'Documents Sent', type: 'checkbox' },
+                    { key: 'receivedDocs', label: 'Received Docs', type: 'checkbox' },
+                    { key: 'invoice', label: 'Invoice Generated', type: 'checkbox' },
+                    { key: 'billNumber', label: 'Bill Number', type: 'text' },
+                    { key: 'teamsGroup', label: 'Teams Group', type: 'text' },
+                    { key: 'sentToSowmya', label: 'Sent to Sowmya', type: 'checkbox' },
+                    { key: 'testingStarted', label: 'Testing Started', type: 'checkbox' },
+                    { key: 'liveToken', label: 'Live Token Issued', type: 'checkbox' },
+                    { key: 'remarks', label: 'Remarks', type: 'textarea' }
+                ],
+            },
+            'white': {
+                node: 'tracker/white',
+                name: 'White Label',
+                columns: [
+                    { key: 'agtCode', label: 'AGT Code', type: 'text', required: true },
+                    { key: 'companyName', label: 'Company Name', type: 'text', required: true },
+                    { key: 'infoSent', label: 'Info Sent', type: 'checkbox' },
+                    { key: 'infoReceived', label: 'Info Received', type: 'checkbox' },
+                    { key: 'trade', label: 'Trade License', type: 'checkbox' },
+                    { key: 'vat', label: 'VAT Certificate', type: 'checkbox' },
+                    { key: 'service', label: 'Service Agreement', type: 'checkbox' },
+                    { key: 'agreement', label: 'Signed Agreement', type: 'checkbox' },
+                    { key: 'nda', label: 'NDA', type: 'checkbox' },
+                    { key: 'docsSent', label: 'Documents Sent', type: 'checkbox' },
+                    { key: 'receivedDocs', label: 'Received Docs', type: 'checkbox' },
+                    { key: 'invoice', label: 'Invoice Generated', type: 'checkbox' },
+                    { key: 'billNumber', label: 'Bill Number', type: 'text' },
+                    { key: 'teamsGroup', label: 'Teams Group', type: 'text' },
+                    { key: 'sentToSowmya', label: 'Sent to Sowmya', type: 'checkbox' },
+                    { key: 'testingStarted', label: 'Testing Started', type: 'checkbox' },
+                    { key: 'liveToken', label: 'Live Token Issued', type: 'checkbox' },
+                    { key: 'remarks', label: 'Remarks', type: 'textarea' }
+                ],
+            },
+            'credit': {
+                node: 'tracker/credit',
+                name: 'Credit Application',
+                columns: [
+                    { key: 'agtCode', label: 'AGT Code', type: 'text', required: true },
+                    { key: 'companyName', label: 'Company Name', type: 'text', required: true },
+                    { key: 'infoSent', label: 'Info Sent', type: 'checkbox' },
+                    { key: 'infoReceived', label: 'Info Received', type: 'checkbox' },
+                    { key: 'trade', label: 'Trade License', type: 'checkbox' },
+                    { key: 'vat', label: 'VAT Certificate', type: 'checkbox' },
+                    { key: 'service', label: 'Service Agreement', type: 'checkbox' },
+                    { key: 'credit', label: 'Credit Application', type: 'checkbox' },
+                    { key: 'docsSent', label: 'Documents Sent', type: 'checkbox' },
+                    { key: 'receivedDocs', label: 'Received Docs', type: 'checkbox' },
+                    { key: 'status', label: 'Application Status', type: 'select', options: ['Pending', 'Approved', 'Rejected'] },
+                    { key: 'amountMode', label: 'Amount Mode', type: 'select', options: ['Online', 'Offline', 'Both'] },
+                    { key: 'onlineAmount', label: 'Online Amount', type: 'number', dynamic: true, showIf: (mode) => mode === 'Online' || mode === 'Both' },
+                    { key: 'offlineAmount', label: 'Offline Amount', type: 'number', dynamic: true, showIf: (mode) => mode === 'Offline' || mode === 'Both' },
+                    { key: 'remarks', label: 'Remarks', type: 'textarea' }
+                ],
+            },
+            'auth': {
+                node: 'tracker/auth',
+                name: 'Authorization',
+                columns: [
+                    { key: 'agtCode', label: 'AGT Code', type: 'text', required: true },
+                    { key: 'companyName', label: 'Company Name', type: 'text', required: true },
+                    { key: 'salesPerson', label: 'Sales Person', type: 'text' },
+                    { key: 'date', label: 'Authorization Date', type: 'date' },
+                    { key: 'remarks', label: 'Remarks', type: 'textarea' },
+                ],
+            },
+        };
+
+        // Default empty row data
+        const DEFAULT_ROW = {
+            'text': '', 'checkbox': false, 'number': 0, 'textarea': '',
+            'status': 'Pending', 'amountMode': 'Online', 'date': new Date().toISOString().split('T')[0]
+        };
+
+        class TrackerApp {
+            constructor() {
+                this.db = firebase.database();
+                this.data = {}; 
+                this.activeSheet = 'api';
+                this.filteredData = {};
+                this.currentEditId = null; // Track which row is being edited in modal
+
+                this.initFirebase();
+                this.setupEventListeners();
+            }
+
+            // --- Firebase Initialization & Listeners ---
+
+            initFirebase() {
+                const loadingRow = document.getElementById('loading-row');
+                
+                Object.keys(SHEET_CONFIG).forEach(sheetKey => {
+                    const path = `artifacts/${appId}/public/data/${SHEET_CONFIG[sheetKey].node}`;
+                    const ref = this.db.ref(path);
+                    
+                    ref.on('value', (snapshot) => {
+                        const rawData = snapshot.val() || {};
+                        this.data[sheetKey] = Object.entries(rawData).map(([id, row]) => ({ id, ...row }));
+                        
+                        if (sheetKey === this.activeSheet) {
+                            this.applyFilters();
+                            if (loadingRow) loadingRow.classList.add('hidden');
+                        }
+                    }, (error) => {
+                        console.error(`Firebase error on ${sheetKey}:`, error);
+                        this.showMessage('Error loading data', 'error');
+                    });
+                });
+            }
+            
+            // --- UI/Event Setup ---
+
+            setupEventListeners() {
+                document.querySelectorAll('.tab-button').forEach(button => {
+                    button.addEventListener('click', (e) => this.switchTab(e.target.dataset.sheet));
+                });
+
+                document.getElementById('add-row-btn').addEventListener('click', () => this.addNewRow());
+                document.getElementById('search-input').addEventListener('input', () => this.applyFilters());
+                
+                const startDateFilter = document.getElementById('start-date-filter');
+                const endDateFilter = document.getElementById('end-date-filter');
+                if(startDateFilter) startDateFilter.addEventListener('change', () => this.applyFilters());
+                if(endDateFilter) endDateFilter.addEventListener('change', () => this.applyFilters());
+
+                // Profile dropdown toggles
+                const profileBtn = document.getElementById('profile-btn');
+                const profileDropdown = document.getElementById('profile-dropdown');
+                profileBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    profileDropdown.classList.toggle('hidden');
+                });
+                document.addEventListener('click', () => profileDropdown.classList.add('hidden'));
+
+                this.switchTab(this.activeSheet);
+            }
+            
+            switchTab(newSheet) {
+                this.activeSheet = newSheet;
+                
+                // UI Updates
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('tab-active'));
+                document.querySelector(`[data-sheet="${newSheet}"]`).classList.add('tab-active');
+                
+                const isAuthTab = newSheet === 'auth';
+                document.getElementById('date-filter-container').classList.toggle('hidden', !isAuthTab);
+
+                this.applyFilters(); 
+            }
+
+            // --- Filtering Logic ---
+
+            applyFilters() {
+                const sheetKey = this.activeSheet;
+                let currentData = [...(this.data[sheetKey] || [])]; 
+                const searchInput = document.getElementById('search-input');
+                const searchText = searchInput ? searchInput.value.toLowerCase().trim() : '';
+                
+                // 1. DEEP SEARCH (Iterate through all values in the row object)
+                if (searchText) {
+                    currentData = currentData.filter(row => {
+                        // Convert all object values to a single searchable string or check individually
+                        return Object.values(row).some(val => {
+                            if (val === null || val === undefined) return false;
+                            return String(val).toLowerCase().includes(searchText);
+                        });
+                    });
+                }
+
+                // 2. Date Filter
+                if (sheetKey === 'auth') {
+                    const startDate = document.getElementById('start-date-filter').value;
+                    const endDate = document.getElementById('end-date-filter').value;
+                    
+                    if (startDate || endDate) {
+                        const startTS = startDate ? new Date(startDate).getTime() : 0;
+                        const endTS = endDate ? new Date(endDate).getTime() + (24 * 60 * 60 * 1000) : Infinity; 
+                        currentData = currentData.filter(row => {
+                            if (!row.date) return false;
+                            const rowDate = new Date(row.date).getTime();
+                            return rowDate >= startTS && rowDate < endTS;
+                        });
+                    }
+                }
+
+                this.filteredData[sheetKey] = currentData;
+                this.renderTable(currentData);
+            }
+
+            // --- Table Rendering (Updated for Dynamic Columns) ---
+
+            renderTable(rows) {
+                const tHead = document.getElementById('table-head');
+                const tBody = document.getElementById('table-body');
+                const noDataMsg = document.getElementById('no-data-message');
+                
+                // 1. Generate Headers Dynamically based on active sheet
+                tHead.innerHTML = '';
+                const headerRow = document.createElement('tr');
+                headerRow.className = 'bg-gray-100';
+                
+                // Common Headers
+                const headers = [
+                    { text: '#', width: 'w-16' },
+                    { text: 'AGT Code', width: 'w-32' }, // Reduced width slightly
+                    { text: 'Company Name', width: '' } // Fluid width
+                ];
+
+                // Specific Headers
+                if (this.activeSheet === 'auth') {
+                    headers.push({ text: 'Sales Person', width: 'w-48' });
+                } else if (this.activeSheet === 'api') {
+                    headers.push({ text: 'Status', width: 'w-24 text-center' });
+                } else if (this.activeSheet === 'credit') {
+                    headers.push({ text: 'Status', width: 'w-40 text-center' });
+                }
+
+                // Actions Header (Always Last)
+                headers.push({ text: 'Actions', width: 'w-40 text-center' });
+
+                headers.forEach(h => {
+                    const th = document.createElement('th');
+                    th.className = `px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider ${h.width || ''}`;
+                    if (h.text === 'Actions' || h.text === 'Status' || h.text === 'Approved Amount') th.classList.add('text-center'); // Center alignment
+                    th.textContent = h.text;
+                    headerRow.appendChild(th);
+                });
+                tHead.appendChild(headerRow);
+
+                // 2. Render Body
+                tBody.innerHTML = '';
+                
+                if (rows.length === 0) {
+                    tBody.classList.add('hidden');
+                    noDataMsg.classList.remove('hidden');
+                    return;
+                }
+                tBody.classList.remove('hidden');
+                noDataMsg.classList.add('hidden');
+
+                rows.forEach((row, index) => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'data-row transition-colors duration-150';
+                    
+                    // 1. Index
+                    tr.innerHTML += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium border-b border-gray-100">${index + 1}</td>`;
+
+                    // 2. AGT Code
+                    tr.innerHTML += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium border-b border-gray-100">${row.agtCode || '<span class="text-gray-400 italic">No Code</span>'}</td>`;
+
+                    // 3. Company Name (Truncated)
+                    tr.innerHTML += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium border-b border-gray-100 max-w-xs truncate">${row.companyName || '<span class="text-gray-400 italic">No Name</span>'}</td>`;
+
+                    // 4. Specific Columns
+                    if (this.activeSheet === 'auth') {
+                        // Show Sales Person Name
+                         tr.innerHTML += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 border-b border-gray-100">${row.salesPerson || '<span class="text-gray-300">-</span>'}</td>`;
+                    } else if (this.activeSheet === 'api') {
+                         // Show Live Token Badge if true
+                         let statusHtml = '<span class="text-gray-300">-</span>';
+                         if (row.liveToken === true) {
+                             statusHtml = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 shadow-sm">
+                                <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5"></span>LIVE
+                             </span>`;
+                         }
+                         tr.innerHTML += `<td class="px-6 py-4 whitespace-nowrap text-center border-b border-gray-100">${statusHtml}</td>`;
+                   
+                         } else if (this.activeSheet === 'credit') {
+                         // Show Approved Amount Logic with TAGS
+                         let amountDisplay = '<span class="text-gray-300 text-xs">-</span>';
+                         
+                         if (row.status === 'Approved') {
+                             // Helper to format numbers with commas
+                             const formatCurrency = (val) => {
+                                 return Number(val || 0).toLocaleString();
+                             };
+                             
+                             const on = formatCurrency(row.onlineAmount);
+                             const off = formatCurrency(row.offlineAmount);
+                             const mode = row.amountMode;
+
+                             if (mode === 'Online') {
+                                 amountDisplay = `
+                                    <div class="flex flex-row items-center">
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-800 mb-1">ONLINE</span>
+                                        <span class="font-bold text-gray-700">AED ${on}</span>
+                                    </div>`;
+                             } else if (mode === 'Offline') {
+                                 amountDisplay = `
+                                    <div class="flex flex-row items-center">
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-800 mb-1">OFFLINE</span>
+                                        <span class="font-bold text-gray-700">AED ${off}</span>
+                                    </div>`;
+                             } else if (mode === 'Both') {
+                                 amountDisplay = `
+                                    <div class="flex flex-row space-y-1 text-xs w-full max-w-[240px] mx-auto">
+                                        <div class="flex items-center justify-between bg-gray-50 p-1 rounded border border-gray-100">
+                                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-green-100 text-green-800">ONLINE</span>
+                                            <span class="font-bold text-gray-700">AED ${on}</span>
+                                        </div>
+                                        <div class="flex items-center justify-between bg-gray-50 p-1 rounded border border-gray-100">
+                                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-100 text-orange-800">OFFLINE</span>
+                                            <span class="font-bold text-gray-700">AED ${off}</span>
+                                        </div>
+                                    </div>`;
+                             }
+                         } else {
+                             if(row.status === 'Rejected') amountDisplay = '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Rejected</span>';
+                             else amountDisplay = '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>';
+                         }
+                         tr.innerHTML += `<td class="px-6 py-4 whitespace-nowrap text-center border-b border-gray-100 align-middle">${amountDisplay}</td>`;
+                    }
+
+                    // 5. Actions
+                    const actionTd = document.createElement('td');
+                    actionTd.className = 'px-6 py-4 whitespace-nowrap text-center text-sm font-medium border-b border-gray-100';
+                    
+                    const openBtn = document.createElement('button');
+                    openBtn.className = 'text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded-md mr-2 transition duration-150';
+                    openBtn.innerHTML = '<i class="fas fa-external-link-alt mr-1"></i> Open';
+                    openBtn.onclick = () => this.openDetailsModal(row.id);
+                    
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1 rounded-md transition duration-150';
+                    deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+                    deleteBtn.onclick = () => this.openConfirmationModal(row.id);
+
+                    actionTd.appendChild(openBtn);
+                    actionTd.appendChild(deleteBtn);
+                    tr.appendChild(actionTd);
+
+                    tBody.appendChild(tr);
+                });
+            }
+
+            // --- Detail Modal Logic (The "Dialogue Box") ---
+
+            openDetailsModal(id) {
+                this.currentEditId = id;
+                const rowData = this.data[this.activeSheet].find(r => r.id === id);
+                const config = SHEET_CONFIG[this.activeSheet];
+                const formContainer = document.getElementById('details-form');
+                
+                // Update Header
+                const modalTitle = document.getElementById('modal-title');
+                modalTitle.textContent = rowData.companyName || 'New Company';
+                document.getElementById('modal-subtitle').textContent = `AGT Code: ${rowData.agtCode || 'N/A'} | Sheet: ${config.name}`;
+
+                formContainer.innerHTML = '';
+
+                // Generate Form Fields dynamically
+                config.columns.forEach(col => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'flex flex-col space-y-1';
+                    
+                    // Handling dynamic logic for display
+                    if (col.dynamic) {
+                        wrapper.dataset.dynamicKey = col.key; // Mark for updates
+                        const mode = rowData['amountMode'] || 'Online';
+                        if (!col.showIf(mode)) wrapper.classList.add('hidden');
+                    }
+
+                    // Label
+                    const label = document.createElement('label');
+                    label.className = 'text-xs font-bold text-gray-500 uppercase tracking-wide';
+                    label.textContent = col.label;
+                    wrapper.appendChild(label);
+
+                    let input;
+
+                    if (col.type === 'checkbox') {
+                        // Custom Checkbox UI
+                        wrapper.className = 'flex flex-row items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 transition';
+                        label.className = 'text-sm font-medium text-gray-700 cursor-pointer flex-grow';
+                        label.htmlFor = `field-${col.key}`;
+                        
+                        const checkWrapper = document.createElement('div');
+                        checkWrapper.className = "relative inline-block w-10 mr-2 align-middle select-none";
+                        
+                        input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.id = `field-${col.key}`;
+                        input.checked = !!rowData[col.key];
+                        input.className = "toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300";
+                        
+                        const track = document.createElement('label');
+                        track.htmlFor = `field-${col.key}`;
+                        track.className = "toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer transition-colors duration-300";
+                        
+                        checkWrapper.appendChild(input);
+                        checkWrapper.appendChild(track);
+                        
+                        wrapper.innerHTML = ''; 
+                        wrapper.appendChild(label);
+                        wrapper.appendChild(checkWrapper);
+                    } 
+                    else if (col.type === 'select') {
+                        input = document.createElement('select');
+                        input.className = 'w-full p-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition';
+                        col.options.forEach(opt => {
+                            const option = document.createElement('option');
+                            option.value = opt;
+                            option.textContent = opt;
+                            input.appendChild(option);
+                        });
+                        input.value = rowData[col.key] || col.options[0];
+                        input.addEventListener('change', () => this.updateDynamicFields(col.key, input.value));
+                    }
+                    else if (col.type === 'textarea') {
+                        input = document.createElement('textarea');
+                        input.className = 'w-full p-2 border border-gray-300 rounded-lg h-24 focus:ring-2 focus:ring-blue-500 transition resize-none';
+                        input.value = rowData[col.key] || '';
+                    }
+                    else {
+                        // Text, Number, Date
+                        // Special handling for Company Name to be a Textarea if needed for long names
+                        if (col.key === 'companyName') {
+                            input = document.createElement('textarea');
+                            input.className = 'w-full p-2 border border-gray-300 rounded-lg h-20 focus:ring-2 focus:ring-blue-500 transition resize-none';
+                            input.value = rowData[col.key] || '';
+                        } else {
+                            input = document.createElement('input');
+                            input.type = col.type;
+                            input.className = 'w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition';
+                            input.value = rowData[col.key] || '';
+                        }
+                    }
+
+                    input.name = col.key;
+                    if(col.type !== 'checkbox') wrapper.appendChild(input);
+                    formContainer.appendChild(wrapper);
+                });
+
+                document.getElementById('details-modal').classList.remove('hidden');
+            }
+
+            updateDynamicFields(changedKey, newValue) {
+                // Specifically for Credit Sheet Amount Mode
+                if (this.activeSheet === 'credit' && changedKey === 'amountMode') {
+                    const config = SHEET_CONFIG['credit'];
+                    const form = document.getElementById('details-form');
+                    
+                    config.columns.forEach(col => {
+                        if (col.dynamic) {
+                            const el = form.querySelector(`div[data-dynamic-key="${col.key}"]`);
+                            if (el) {
+                                if (col.showIf(newValue)) {
+                                    el.classList.remove('hidden');
+                                } else {
+                                    el.classList.add('hidden');
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            saveDetails() {
+                const form = document.getElementById('details-form');
+                const inputs = form.querySelectorAll('input, select, textarea');
+                const newData = {};
+
+                inputs.forEach(input => {
+                    if (input.type === 'checkbox') {
+                        newData[input.name] = input.checked;
+                    } else {
+                        newData[input.name] = input.value;
+                    }
+                });
+
+                const path = `artifacts/${appId}/public/data/${SHEET_CONFIG[this.activeSheet].node}/${this.currentEditId}`;
+                this.db.ref(path).update(newData)
+                    .then(() => {
+                        this.showMessage('Changes saved successfully!', 'success');
+                        this.closeModal('details-modal');
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        this.showMessage('Failed to save changes.', 'error');
+                    });
+            }
+
+            addNewRow() {
+                const config = SHEET_CONFIG[this.activeSheet];
+                const newRow = {};
+                
+                config.columns.forEach(col => {
+                    newRow[col.key] = DEFAULT_ROW[col.type] !== undefined ? DEFAULT_ROW[col.type] : '';
+                });
+                newRow['companyName'] = 'New Company';
+                newRow['agtCode'] = 'AGT-NEW';
+
+                const path = `artifacts/${appId}/public/data/${SHEET_CONFIG[this.activeSheet].node}`;
+                const newRef = this.db.ref(path).push();
+                newRef.set(newRow)
+                    .then(() => {
+                        this.openDetailsModal(newRef.key); // Immediately open modal for editing
+                        this.showMessage('New row added.', 'success');
+                    });
+            }
+
+            // --- Deletion ---
+
+            openConfirmationModal(id) {
+                this.currentEditId = id;
+                document.getElementById('confirmation-modal').classList.remove('hidden');
+                
+                const confirmBtn = document.getElementById('confirm-delete-btn');
+                // Remove old listeners to prevent multiple fires
+                const newBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+                
+                newBtn.addEventListener('click', () => {
+                    const path = `artifacts/${appId}/public/data/${SHEET_CONFIG[this.activeSheet].node}/${this.currentEditId}`;
+                    this.db.ref(path).remove()
+                        .then(() => {
+                            this.showMessage('Record deleted.', 'success');
+                            this.closeModal('confirmation-modal');
+                        });
+                });
+            }
+
+            // --- Helpers ---
+
+            closeModal(id) {
+                document.getElementById(id).classList.add('hidden');
+            }
+
+            showMessage(text, type = 'success') {
+                const box = document.getElementById('message-box');
+                const msgText = document.getElementById('message-text');
+                const icon = document.getElementById('message-icon');
+
+                msgText.textContent = text;
+                box.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
+                icon.className = type === 'success' ? 'fas fa-check-circle mr-3' : 'fas fa-exclamation-circle mr-3';
+                
+                if (type === 'success') {
+                    box.classList.add('bg-green-100', 'text-green-800');
+                } else {
+                    box.classList.add('bg-red-100', 'text-red-800');
+                }
+
+                box.classList.remove('translate-y-0', 'hidden');
+                setTimeout(() => {
+                    box.classList.add('hidden');
+                }, 3000);
+            }
+
+            // --- Export Functions ---
+             exportPDF() {
+                if (!window.jspdf) return this.showMessage("PDF Library not loaded", "error");
+                const doc = new window.jspdf.jsPDF();
+                const sheet = this.activeSheet;
+                const config = SHEET_CONFIG[sheet];
+                const data = this.filteredData[sheet];
+
+                // Simple Columns for PDF (Too many cols break layout)
+                const headers = [['#', 'AGT Code', 'Company Name', 'Details']];
+                const rows = data.map((r, i) => [
+                    i + 1,
+                    r.agtCode,
+                    r.companyName,
+                    // Summarize checks
+                    `Checks: ${Object.keys(r).filter(k => r[k] === true && k !== 'checkbox').length}`
+                ]);
+
+                doc.autoTable({
+                    head: headers,
+                    body: rows,
+                    startY: 20,
+                    theme: 'grid',
+                    headStyles: { fillColor: '#007bff' }
+                });
+                doc.save(`${config.name}_Report.pdf`);
+            }
+
+            exportJSON() {
+                const data = this.filteredData[this.activeSheet];
+                const json = JSON.stringify(data, null, 2);
+                const blob = new Blob([json], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "data_export.json";
+                a.click();
+            }
+            
+            importJSON(event) {
+                const file = event.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                     try {
+                        const json = JSON.parse(e.target.result);
+                        // Convert Array back to Object for Firebase if needed, or push individually
+                        // Assuming the export was array, but firebase wants object map usually.
+                        // We will just push them as new entries for safety or overwrite. 
+                        // User requested standard overwrite logic in previous code.
+                        const updates = {};
+                        // If array
+                        if (Array.isArray(json)) {
+                            json.forEach(item => {
+                                const newKey = this.db.ref().push().key;
+                                updates[newKey] = item;
+                            });
+                        } else {
+                            // If object map
+                            Object.assign(updates, json);
+                        }
+                        
+                        const path = `artifacts/${appId}/public/data/${SHEET_CONFIG[this.activeSheet].node}`;
+                        this.db.ref(path).set(updates)
+                            .then(() => this.showMessage("Data Imported Successfully"))
+                            .catch(err => this.showMessage("Import Failed", "error"));
+                     } catch (err) {
+                         this.showMessage("Invalid JSON", "error");
+                     }
+                };
+                reader.readAsText(file);
+                event.target.value = '';
+            }
+        }
+
+        window.onload = () => { window.app = new TrackerApp(); };
+    </script>
+</body>
+</html>
