@@ -14,6 +14,8 @@
     <!-- jsPDF and jsPDF AutoTable CDNs for PDF Export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
         /* Custom styles for the required look and feel */
@@ -195,6 +197,42 @@
                 <form id="details-form" class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <!-- Dynamic Fields injected here -->
                 </form>
+
+                <!-- Documents Section -->
+                <div class="mt-8 pt-6 border-t border-gray-200">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                        <i class="fas fa-file-upload mr-2 text-blue-accent"></i> Documents
+                    </h3>
+
+                    <!-- Upload Area -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-bold text-gray-600 uppercase tracking-wide mb-3">Upload Document</label>
+                        <div class="relative">
+                            <input type="file" id="document-file-input" class="hidden" onchange="app.handleFileUpload(event)">
+                            <button type="button" onclick="document.getElementById('document-file-input').click()" class="w-full flex items-center justify-center px-4 py-3 border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg hover:bg-blue-100 hover:border-blue-400 transition duration-150 cursor-pointer">
+                                <i class="fas fa-cloud-upload-alt mr-2 text-blue-accent text-lg"></i>
+                                <span class="text-sm font-medium text-blue-accent">Click to upload or drag & drop</span>
+                            </button>
+                            <div id="upload-progress" class="hidden mt-2 bg-gray-100 rounded-lg p-3">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-sm font-medium text-gray-700">Uploading...</span>
+                                    <span id="upload-percent" class="text-sm text-gray-600">0%</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div id="upload-bar" class="bg-blue-accent h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Documents List -->
+                    <div>
+                        <label class="block text-sm font-bold text-gray-600 uppercase tracking-wide mb-3">Attached Documents</label>
+                        <div id="documents-list" class="space-y-2 bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-64 overflow-y-auto">
+                            <p class="text-sm text-gray-500 text-center py-4">No documents uploaded yet</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Modal Footer -->
@@ -350,13 +388,21 @@
         class TrackerApp {
             constructor() {
                 this.db = firebase.database();
-                this.data = {}; 
+                this.data = {};
                 this.activeSheet = 'api';
                 this.filteredData = {};
-                this.currentEditId = null; // Track which row is being edited in modal
+                this.currentEditId = null;
+                this.documents = {};
 
+                this.initSupabase();
                 this.initFirebase();
                 this.setupEventListeners();
+            }
+
+            initSupabase() {
+                const supabaseUrl = 'https://nicfsrzrdlyetjxeaupx.supabase.co';
+                const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJib2x0IiwicmVmIjoiMGVjOTBiNTdkNmU5NWZjYmRhMTk4MzJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4ODE1NzQsImV4cCI6MTc1ODg4MTU3NH0.9I8-U0x86Ak8t2DGaIk0HfvTSLsAyzdnz-Nw00mMkKw';
+                this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
             }
 
             // --- Firebase Initialization & Listeners ---
@@ -615,13 +661,15 @@
                 const rowData = this.data[this.activeSheet].find(r => r.id === id);
                 const config = SHEET_CONFIG[this.activeSheet];
                 const formContainer = document.getElementById('details-form');
-                
+
                 // Update Header
                 const modalTitle = document.getElementById('modal-title');
                 modalTitle.textContent = rowData.companyName || 'New Company';
                 document.getElementById('modal-subtitle').textContent = `AGT Code: ${rowData.agtCode || 'N/A'} | Sheet: ${config.name}`;
 
                 formContainer.innerHTML = '';
+
+                this.loadDocuments(id);
 
                 // Generate Form Fields dynamically
                 config.columns.forEach(col => {
@@ -868,22 +916,16 @@
                 reader.onload = (e) => {
                      try {
                         const json = JSON.parse(e.target.result);
-                        // Convert Array back to Object for Firebase if needed, or push individually
-                        // Assuming the export was array, but firebase wants object map usually.
-                        // We will just push them as new entries for safety or overwrite. 
-                        // User requested standard overwrite logic in previous code.
                         const updates = {};
-                        // If array
                         if (Array.isArray(json)) {
                             json.forEach(item => {
                                 const newKey = this.db.ref().push().key;
                                 updates[newKey] = item;
                             });
                         } else {
-                            // If object map
                             Object.assign(updates, json);
                         }
-                        
+
                         const path = `artifacts/${appId}/public/data/${SHEET_CONFIG[this.activeSheet].node}`;
                         this.db.ref(path).set(updates)
                             .then(() => this.showMessage("Data Imported Successfully"))
@@ -894,6 +936,163 @@
                 };
                 reader.readAsText(file);
                 event.target.value = '';
+            }
+
+            // --- Document Management ---
+
+            async loadDocuments(trackerId) {
+                try {
+                    const { data, error } = await this.supabase
+                        .from('documents')
+                        .select('*')
+                        .eq('tracker_id', trackerId)
+                        .order('uploaded_at', { ascending: false });
+
+                    if (error) throw error;
+
+                    this.documents[trackerId] = data || [];
+                    this.renderDocuments(trackerId);
+                } catch (err) {
+                    console.error('Error loading documents:', err);
+                }
+            }
+
+            renderDocuments(trackerId) {
+                const list = document.getElementById('documents-list');
+                const docs = this.documents[trackerId] || [];
+
+                if (docs.length === 0) {
+                    list.innerHTML = '<p class="text-sm text-gray-500 text-center py-4">No documents uploaded yet</p>';
+                    return;
+                }
+
+                list.innerHTML = docs.map(doc => `
+                    <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition">
+                        <div class="flex items-center flex-grow min-w-0">
+                            <i class="fas fa-file mr-3 text-blue-accent text-lg flex-shrink-0"></i>
+                            <div class="flex-grow min-w-0">
+                                <p class="text-sm font-medium text-gray-800 truncate" title="${doc.file_name}">${doc.file_name}</p>
+                                <p class="text-xs text-gray-500">${this.formatFileSize(doc.file_size)} • ${new Date(doc.uploaded_at).toLocaleDateString()}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 ml-2 flex-shrink-0">
+                            <button type="button" onclick="app.downloadDocument('${doc.storage_path}', '${doc.file_name}')" class="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50 transition" title="Download">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button type="button" onclick="app.deleteDocument('${doc.id}', '${this.currentEditId}')" class="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition" title="Delete">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const maxSize = 50 * 1024 * 1024;
+                if (file.size > maxSize) {
+                    this.showMessage('File size exceeds 50MB limit', 'error');
+                    return;
+                }
+
+                const progressDiv = document.getElementById('upload-progress');
+                const progressBar = document.getElementById('upload-bar');
+                const progressPercent = document.getElementById('upload-percent');
+
+                progressDiv.classList.remove('hidden');
+
+                try {
+                    const timestamp = Date.now();
+                    const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                    const storagePath = `documents/${this.currentEditId}/${timestamp}_${sanitizedFileName}`;
+
+                    const { data: uploadData, error: uploadError } = await this.supabase.storage
+                        .from('tracker-documents')
+                        .upload(storagePath, file, {
+                            onUploadProgress: (progress) => {
+                                const percent = Math.round((progress.loaded / progress.total) * 100);
+                                progressPercent.textContent = `${percent}%`;
+                                progressBar.style.width = `${percent}%`;
+                            }
+                        });
+
+                    if (uploadError) throw uploadError;
+
+                    const { error: dbError } = await this.supabase
+                        .from('documents')
+                        .insert([{
+                            tracker_id: this.currentEditId,
+                            sheet_type: this.activeSheet,
+                            file_name: file.name,
+                            file_size: file.size,
+                            file_type: file.type,
+                            storage_path: storagePath,
+                            uploaded_by: 'user',
+                            document_type: 'General'
+                        }]);
+
+                    if (dbError) throw dbError;
+
+                    this.showMessage('Document uploaded successfully!', 'success');
+                    this.loadDocuments(this.currentEditId);
+                    progressDiv.classList.add('hidden');
+                    progressBar.style.width = '0%';
+                    progressPercent.textContent = '0%';
+                    event.target.value = '';
+                } catch (err) {
+                    console.error('Upload error:', err);
+                    this.showMessage('Failed to upload document', 'error');
+                    progressDiv.classList.add('hidden');
+                }
+            }
+
+            async downloadDocument(storagePath, fileName) {
+                try {
+                    const { data, error } = await this.supabase.storage
+                        .from('tracker-documents')
+                        .download(storagePath);
+
+                    if (error) throw error;
+
+                    const url = URL.createObjectURL(data);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    console.error('Download error:', err);
+                    this.showMessage('Failed to download document', 'error');
+                }
+            }
+
+            async deleteDocument(docId, trackerId) {
+                if (!confirm('Are you sure you want to delete this document?')) return;
+
+                try {
+                    const { error: dbError } = await this.supabase
+                        .from('documents')
+                        .delete()
+                        .eq('id', docId);
+
+                    if (dbError) throw dbError;
+
+                    this.showMessage('Document deleted successfully', 'success');
+                    this.loadDocuments(trackerId);
+                } catch (err) {
+                    console.error('Delete error:', err);
+                    this.showMessage('Failed to delete document', 'error');
+                }
+            }
+
+            formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
             }
         }
 
