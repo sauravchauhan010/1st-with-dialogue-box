@@ -1,0 +1,13 @@
+{
+  "name": "rayna-tours-tracker",
+  "version": "1.0.0",
+  "description": "Rayna Tours Tracker Application",
+  "scripts": {
+    "dev": "npx vite",
+    "build": "echo 'No build needed for static HTML'",
+    "preview": "npx vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
